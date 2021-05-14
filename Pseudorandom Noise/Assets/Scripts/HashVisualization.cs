@@ -14,22 +14,28 @@ public class HashVisualization : MonoBehaviour
     struct HashJob : IJobFor
     {
         [ReadOnly]
-        public NativeArray<float3> positions;
+        public NativeArray<float3x4> positions;
 
         [WriteOnly]
-        public NativeArray<uint> hashes;
+        public NativeArray<uint4> hashes;
 
-        public SmallXXHash hash;
+        public SmallXXHash4 hash;
 
         public float3x4 domainTRS;
 
+        float4x3 TransformPositions(float3x4 trs, float4x3 p) => float4x3(
+            trs.c0.x * p.c0 + trs.c1.x * p.c1 + trs.c2.x * p.c2 + trs.c3.x,
+            trs.c0.y * p.c0 + trs.c1.y * p.c1 + trs.c2.y * p.c2 + trs.c3.y,
+            trs.c0.z * p.c0 + trs.c1.z * p.c1 + trs.c2.z * p.c2 + trs.c3.z
+        );
+
         public void Execute(int i)
         {
-            float3 p = mul(domainTRS, float4(positions[i], 1f));
+            float4x3 p = TransformPositions(domainTRS, transpose(positions[i]));
 
-            int u = (int)floor(p.x);
-            int v = (int)floor(p.y);
-            int w = (int)floor(p.z);
+            int4 u = (int4)floor(p.c0);
+            int4 v = (int4)floor(p.c1);
+            int4 w = (int4)floor(p.c2);
 
             hashes[i] = hash.Eat(u).Eat(v).Eat(w);
         }
@@ -62,25 +68,27 @@ public class HashVisualization : MonoBehaviour
         scale = 8f
     };
 
-    NativeArray<uint> hashes;
-    NativeArray<float3> positions, normals;
+    NativeArray<uint4> hashes;
+    NativeArray<float3x4> positions, normals;
 
     ComputeBuffer hashesBuffer, positionsBuffer, normalsBuffer;
 
     MaterialPropertyBlock propertyBlock;
 
     bool isDirty;
+    Bounds bounds;
 
     private void OnEnable()
     {
         isDirty = true;
         int length = resolution * resolution;
-        hashes = new NativeArray<uint>(length, Allocator.Persistent);
-        positions = new NativeArray<float3>(length, Allocator.Persistent);
-        normals = new NativeArray<float3>(length, Allocator.Persistent);
-        hashesBuffer = new ComputeBuffer(length, 4);
-        positionsBuffer = new ComputeBuffer(length, 3 * 4);
-        normalsBuffer = new ComputeBuffer(length, 3 * 4);
+        length = length / 4 + (length & 1);
+        hashes = new NativeArray<uint4>(length, Allocator.Persistent);
+        positions = new NativeArray<float3x4>(length, Allocator.Persistent);
+        normals = new NativeArray<float3x4>(length, Allocator.Persistent);
+        hashesBuffer = new ComputeBuffer(length, 4 * 4);
+        positionsBuffer = new ComputeBuffer(length, 3 * 4 * 4);
+        normalsBuffer = new ComputeBuffer(length, 3 * 4 * 4);
 
         propertyBlock ??= new MaterialPropertyBlock();
         propertyBlock.SetBuffer(hashesID, hashesBuffer);
@@ -93,12 +101,11 @@ public class HashVisualization : MonoBehaviour
     {
         hashes.Dispose();
         positions.Dispose();
+        normals.Dispose();
         hashesBuffer.Release();
         positionsBuffer.Release();
         normalsBuffer.Release();
         hashesBuffer = null;
-        positionsBuffer = null;
-        normalsBuffer = null;
     }
 
     private void OnValidate()
@@ -117,7 +124,7 @@ public class HashVisualization : MonoBehaviour
             isDirty = false;
             transform.hasChanged = false;
 
-            JobHandle handle = Shapes.Job.ScheduleParallel(positions, normals, resolution, transform.localToWorldMatrix, default);
+            JobHandle handle = Shapes.Job<Shapes.Sphere>.ScheduleParallel(positions, normals, resolution, transform.localToWorldMatrix, default);
 
             new HashJob
             {
@@ -133,6 +140,6 @@ public class HashVisualization : MonoBehaviour
         }
 
         Graphics.DrawMeshInstancedProcedural(
-            instanceMesh, 0, material, new Bounds(Vector3.zero, Vector3.one), hashes.Length, propertyBlock);
+            instanceMesh, 0, material, new Bounds(transform.position, float3(2f * cmax(transform.lossyScale) + displacement)), resolution * resolution, propertyBlock);
     }
 }
