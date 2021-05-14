@@ -363,6 +363,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   instanceMesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
   material: {fileID: 2100000, guid: d80884665af546648b8bfab947116105, type: 2}
+  shape: 1
+  instanceScale: 2
   resolution: 32
   displacement: 0
   seed: 0
